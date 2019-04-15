@@ -1,0 +1,224 @@
+# Import libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV, LeaveOneOut
+from sklearn.preprocessing import LabelBinarizer
+from sklearn.metrics import make_scorer, log_loss, accuracy_score, f1_score
+
+# Import dataset
+all_cpg_path = r'.\beta_noob_1_drpT_trp.csv'
+all_cpg = pd.read_csv(all_cpg_path)
+
+sample_id_path = r'.\methyspl_raw_phenotype.xlsx'
+sample_id = pd.read_excel(sample_id_path, usecols='A:C')
+
+# Rename all_cpg for sarcopenic status merging
+all_cpg.rename(columns={'ID': 'array_ID'}, inplace=True)
+
+# Merge sarcopenic status by array_ID
+all_merg = all_cpg.merge(sample_id, left_on='array_ID', right_on='array_ID')
+all_merg.set_index('ID', inplace=True)
+
+#%%
+# Create lasso logistic regression model
+logreg = LogisticRegression(penalty='l1', solver='liblinear', random_state=21)
+
+# Leave-one-out cross validation is computationally expensive
+## Specify leave-one-out cross validation
+#loo = LeaveOneOut()
+
+# Create logloss function
+# The smaller log_loss function result is, the better the model will be
+# Remember to specify 'labels', otherwise can't be recognized by GridSearchCV
+logloss = make_scorer(log_loss, needs_proba=True, labels=[0, 1], greater_is_better=False)
+
+# Create tuning parameter
+param_c = np.logspace(-0.5, 2, num=30)
+logreg_c = {'C': param_c}
+
+
+# logloss in 'scoring' is a 'neg_log_loss' in previous sklearn version
+# Since GrideSearchCV is based on a 'greater_is_better=True' assumption,
+# in accordance with the assumption, evaluation score will be presented as negative
+# so that the higher the score is, the better the model will be.
+# Set refit to 'accuracy' so that accuracy score will be the main evaluator
+# Otherwise need to set refit to False
+logreg_clf = GridSearchCV(
+    estimator=logreg, param_grid=logreg_c, 
+    scoring={'logloss':logloss, 
+             'accuracy': make_scorer(accuracy_score), 
+             'f1': make_scorer(f1_score)},
+    cv=6, n_jobs=-1, refit='accuracy'
+)
+
+# set dataset for all_cpg selection
+X = all_merg.drop(columns=['array_ID', 'STAT']).values
+y_stat = all_merg['STAT']
+lb = LabelBinarizer()
+# 'Sarcopenia' is coded as 1, 'Non-sarcopenia' is 0
+y = lb.fit_transform(y_stat).ravel()
+
+#%%
+# Train lasso_log_regression model
+logreg_clf.fit(X, y)
+
+#%%
+# Plot logloss score, accuracy score and f1 score
+
+# Get mean and std of evaluating scores
+loss_score_mean = (-1) * logreg_clf.cv_results_['mean_test_logloss']
+loss_score_std = logreg_clf.cv_results_['std_test_logloss']
+
+accuracy_score_mean = logreg_clf.cv_results_['mean_test_accuracy']
+accuracy_score_std = logreg_clf.cv_results_['std_test_accuracy']
+
+f1_score_mean = logreg_clf.cv_results_['mean_test_f1']
+f1_score_std = logreg_clf.cv_results_['std_test_f1']
+
+# The same index is found with the highest accuracy_score and f1_score
+best_idx = np.argmax(accuracy_score_mean)
+best_c = param_c[best_idx]
+
+# log_loss plot
+loss_plt = plt.subplot(2,2,1)
+loss_plt.plot(param_c, loss_score_mean, color='red', linestyle='-')
+loss_plt.plot(param_c, loss_score_mean + loss_score_std, color='tab:blue', linestyle='--')
+loss_plt.plot(param_c, loss_score_mean - loss_score_std, color='tab:blue', linestyle='--')
+loss_plt.fill_between(
+    param_c, 
+    loss_score_mean + loss_score_std, loss_score_mean - loss_score_std, 
+    alpha=0.2
+)
+# Plot vertical and horizontal lines for the best score
+# Mark out the minimun log loss value
+loss_plt.vlines(
+    x = best_c, 
+    ymin = np.amin(loss_score_mean - loss_score_std)-0.1, 
+    ymax = np.amin(loss_score_mean), 
+    color='tab:orange', linestyle='-.'
+)
+loss_plt.hlines(
+    y = np.amin(loss_score_mean), 
+    xmin = np.amin(param_c)-5, xmax = best_c, 
+    color = 'tab:orange', linestyle = '-.'
+)
+loss_plt.set_xlim(np.amin(param_c)-5, np.amax(param_c)+5)
+loss_plt.set_ylim(np.amin(loss_score_mean - loss_score_std)-0.1, np.amax(loss_score_mean + loss_score_std)+0.1)
+loss_plt.set_ylabel('Log loss score')
+loss_plt.set_xlabel('Hyperparameter: C')
+
+# accuracy score plot
+ac_plt = plt.subplot(2,2,2)
+ac_plt.plot(param_c, accuracy_score_mean, color='red', linestyle='-')
+ac_plt.plot(param_c, accuracy_score_mean + accuracy_score_std, color='tab:blue', linestyle='--')
+ac_plt.plot(param_c, accuracy_score_mean - accuracy_score_std, color='tab:blue', linestyle='--')
+ac_plt.fill_between(
+    param_c, 
+    accuracy_score_mean + accuracy_score_std, accuracy_score_mean - accuracy_score_std, 
+    alpha=0.2
+)
+ac_plt.vlines(
+    x = best_c, 
+    ymin = np.amin(accuracy_score_mean - accuracy_score_std)-0.1, 
+    ymax = np.amax(accuracy_score_mean), 
+    color='tab:orange', linestyle='-.'
+)
+ac_plt.hlines(
+    y = np.amax(accuracy_score_mean), 
+    xmin = np.amin(param_c)-5, xmax = best_c, 
+    color = 'tab:orange', linestyle = '-.'
+)
+ac_plt.set_xlim(np.amin(param_c)-5, np.amax(param_c)+5)
+ac_plt.set_ylim(np.amin(accuracy_score_mean - accuracy_score_std)-0.1, np.amax(accuracy_score_mean + accuracy_score_std)+0.1)
+ac_plt.set_ylabel('Accuracy score')
+ac_plt.set_xlabel('Hyperparameter: C')
+
+# f1_score plot
+f1_plt = plt.subplot(2,2,3)
+f1_plt.plot(param_c, f1_score_mean, color='red', linestyle='-')
+f1_plt.plot(param_c, f1_score_mean + f1_score_std, color='tab:blue', linestyle='--')
+f1_plt.plot(param_c, f1_score_mean - f1_score_std, color='tab:blue', linestyle='--')
+f1_plt.fill_between(
+    param_c, 
+    f1_score_mean + f1_score_std, f1_score_mean - f1_score_std, 
+    alpha=0.2
+)
+f1_plt.vlines(
+    x = best_c, 
+    ymin = np.amin(f1_score_mean - f1_score_std)-0.1, 
+    ymax = np.amax(f1_score_mean), 
+    color = 'tab:orange', linestyle = '-.'
+)
+f1_plt.hlines(
+    y = np.amax(f1_score_mean), 
+    xmin = np.amin(param_c)-5, xmax = best_c, 
+    color = 'tab:orange', linestyle = '-.'
+)
+f1_plt.set_xlim(np.amin(param_c)-5, np.amax(param_c)+5)
+f1_plt.set_ylim(np.amin(f1_score_mean - f1_score_std)-0.1, np.amax(f1_score_mean + f1_score_std)+0.1)
+f1_plt.set_ylabel('F1 score')
+f1_plt.set_xlabel('Hyperparameter: C')
+
+plt.suptitle('Hyperparameter optimization for lasso logistic regression', fontsize=20)
+plt.show()
+
+#%%
+# Select cpg sites with non-zero coefficient
+# Obtain coefficient and intercept from the best model
+allcpg_coef = logreg_clf.best_estimator_.coef_
+allcpg_inter = logreg_clf.best_estimator_.intercept_
+
+# Create a non-zero mask
+allcpg_mask = allcpg_coef != 0
+
+# Create a list of all cpg sites
+allcpg_list = all_cpg.columns[1:].values.reshape(1, -1)
+
+# Select cpg sites
+allcpg_select = allcpg_list[allcpg_mask].tolist()
+allcpg_coef = allcpg_coef[allcpg_mask].tolist()
+
+# Create a dataframe
+all_cpg_data = {'CpG_site': allcpg_select, 'Coef': allcpg_coef}
+logreg_all_cpg = pd.DataFrame(data=all_cpg_data)
+
+#%%
+# Analyse selected_cpg
+# Import ttest values of all cpg
+ttest_all_path = r'.\Sar_vs_N_Sar_ttest.csv'
+ttest_all = pd.read_csv(ttest_all_path)
+
+#%%
+# Save selected all_cpg information to .csv file
+allcpg_select_info = ttest_all[ttest_all.Probe.isin(allcpg_select)]
+allcpg_select_output = logreg_all_cpg.merge(allcpg_select_info, left_on='CpG_site', right_on='Probe')
+allcpg_select_output.drop(columns=['Probe'], inplace=True)
+
+#%%
+# Select all_cpg with positive t value
+allcpg_hyper_output = allcpg_select_output[allcpg_select_output.T_value > 0]
+
+# Retrieve hyper_cpg list
+allcpg_hyper_list = allcpg_hyper_output['CpG_site'].values.tolist()
+
+# Select all_cpg with negative t value
+allcpg_hypo_output = allcpg_select_output[~(allcpg_select_output.T_value > 0)]
+
+# Retrieve hypo_cpg list
+allcpg_hypo_list = allcpg_hypo_output['CpG_site'].values.tolist()
+
+#%%
+# Create a function for weigth calculation
+def SumWeight(df, weight):
+    '''
+    Weight needs to be a column vector (-1, 1)
+    '''
+    return np.dot(df.values, weight)
+
+# Calculate weighted hyper-, hypo- and total cpg scores. 
+allcpg_score = all_merg[allcpg_select]
+allcpg_score['total_score'] = SumWeight(allcpg_score, allcpg_select_output['Coef'])
+allcpg_score['hyper_score'] = SumWeight(allcpg_score[allcpg_hyper_list], allcpg_hyper_output['Coef'])
+allcpg_score['hypo_score'] = SumWeight(allcpg_score[allcpg_hypo_list], allcpg_hypo_output['Coef'])

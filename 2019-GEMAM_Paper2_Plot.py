@@ -68,14 +68,14 @@ class ScoreFunction:
             x_value.append(ana_df[self.score_name].values)
             y_value.append(y)
             
-            # Create result dictionary by dependent variables
-            pred_value_dict = dict(zip(dep_var, pred_value))
-            x_value_dict = dict(zip(dep_var, x_value))
-            y_value_dict = dict(zip(dep_var, y_value))
-            
-            self.pred_value_dict = pred_value_dict
-            self.x_value_dict = x_value_dict
-            self.y_value_dict = y_value_dict
+        # Create result dictionary by dependent variables
+        pred_value_dict = dict(zip(dep_var, pred_value))
+        x_value_dict = dict(zip(dep_var, x_value))
+        y_value_dict = dict(zip(dep_var, y_value))
+
+        self.pred_value_dict = pred_value_dict
+        self.x_value_dict = x_value_dict
+        self.y_value_dict = y_value_dict
             
         return self.pred_value_dict, self.x_value_dict, self.y_value_dict
     
